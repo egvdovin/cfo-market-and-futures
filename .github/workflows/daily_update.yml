@@ -2,8 +2,8 @@ name: Auto Update CFO Market & MOEX Futures
 
 on:
   schedule:
-    - cron: '0 7,12,16 * * 1-5'  # Автозапуск по будням в 10:00, 15:00 и 19:00 МСК
-  workflow_dispatch:            # Возможность запускать вручную в любой момент
+    - cron: '0 7,12,16 * * 1-5'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -30,6 +30,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@://github.com"
-          git add cfo_vacancies.csv moex_futures.csv
-          git commit -m "Auto-update market and futures data" || exit 0
+          git add moex_futures.csv
+          git commit -m "Auto-update futures data" || exit 0
           git push
