@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install libraries
-        run: pip install requests pandas
+        run: pip install requests pandas yfinance
 
       - name: Run data fetcher
         run: python update_data.py
