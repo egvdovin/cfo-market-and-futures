@@ -2,75 +2,28 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-HEADERS = {'User-Agent': 'CFO-Portfolio-Dashboard/1.0'}
-
-# Коды регионов РФ для крупных городов (Москва, СПб, Татарстан, Свердловская, Новосибирская, Нижегородская обл., Краснодарский край)
-TARGET_REGIONS = {
-    '77': 'Москва',
-    '78': 'Санкт-Петербург',
-    '16': 'Республика Татарстан',
-    '66': 'Свердловская область',
-    '54': 'Новосибирская область',
-    '52': 'Нижегородская область',
-    '23': 'Краснодарский край'
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 }
 
-# Базовые тикеры фьючерсов на срочном рынке Мосбиржи (FORTS)
+# Базовые коды активов на срочном рынке Мосбиржи (FORTS)
 FUTURES_MAP = {
     'GOLD': 'Золото (GOLD)',
     'BR': 'Нефть Brent (BR)',
     'NG': 'Природный газ (NG)',
     'COFFEE': 'Кофе (COFFEE)',
-    'COCOA': 'Какао (COCOA)'
+    'KC': 'Кофе (COFFEE)',
+    'COCOA': 'Какао (COCOA)',
+    'CC': 'Какао (COCOA)'
 }
 
-def fetch_vacancies():
-    vacancies = []
-    # Запрашиваем вакансии по ключевому слову "Финансовый директор"
-    url = 'http://trudvsem.ru'
-    params = {'text': 'Финансовый директор', 'limit': 100}
-    
-    try:
-        resp = requests.get(url, params=params, headers=HEADERS, timeout=20)
-        data = resp.json()
-        items = data.get('results', {}).get('vacancies', [])
-        
-        for entry in items:
-            vac = entry.get('vacancy', {})
-            reg_code = str(vac.get('region', {}).get('region_code', ''))[:2]
-            
-            # Фильтруем только Москву и крупнейшие регионы
-            if reg_code in TARGET_REGIONS:
-                vacancies.append({
-                    'id': vac.get('id'),
-                    'job_name': vac.get('job-name'),
-                    'region': TARGET_REGIONS[reg_code],
-                    'company': vac.get('company', {}).get('name'),
-                    'salary_min': vac.get('salary_min'),
-                    'salary_max': vac.get('salary_max'),
-                    'schedule': vac.get('schedule'),
-                    'employment': vac.get('employment'),
-                    'experience': vac.get('requirement', {}).get('experience'),
-                    'creation_date': vac.get('creation-date'),
-                    'vac_url': vac.get('vac_url'),
-                    'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M')
-                })
-    except Exception as e:
-        print(f"Ошибка при загрузке вакансий: {e}")
-
-    df_vac = pd.DataFrame(vacancies)
-    df_vac.to_csv('cfo_vacancies.csv', index=False, encoding='utf-8-sig')
-    print(f"Сохранено вакансий: {len(df_vac)}")
-
-
 def fetch_futures():
-    # Забираем все активные фьючерсы срочного рынка (FORTS) с MOEX ISS API
     url = 'https://moex.com'
     params = {'iss.meta': 'off', 'iss.only': 'securities,marketdata'}
     futures_rows = []
     
     try:
-        resp = requests.get(url, params=params, headers=HEADERS, timeout=20).json()
+        resp = requests.get(url, params=params, headers=HEADERS, timeout=25).json()
         sec_cols = resp['securities']['columns']
         sec_data = resp['securities']['data']
         md_cols = resp['marketdata']['columns']
@@ -78,37 +31,81 @@ def fetch_futures():
         
         df_sec = pd.DataFrame(sec_data, columns=sec_cols)
         df_md = pd.DataFrame(md_data, columns=md_cols)
-        
-        # Объединяем справочник контрактов с текущими рыночными данными
         df = pd.merge(df_sec, df_md, on='SECID')
         
-        for asset_code, asset_name in FUTURES_MAP.items():
-            subset = df[df['ASSETCODE'] == asset_code].copy()
-            for _, row in subset.iterrows():
+        print("Доступные базовые активы на MOEX (пример):", df['ASSETCODE'].dropna().unique()[:20])
+        
+        for _, row in df.iterrows():
+            asset_code = str(row.get('ASSETCODE', '')).upper()
+            if asset_code in FUTURES_MAP:
+                # Берем последнюю цену, а если торги закрыты (выходной) — расчетную цену предыдущего дня
+                price = row.get('LAST') or row.get('SETTLEPRICE') or row.get('PREVPRICE')
+                
                 futures_rows.append({
-                    'asset_group': asset_name,
+                    'asset_group': FUTURES_MAP[asset_code],
                     'asset_code': asset_code,
                     'ticker': row.get('SECID'),
                     'short_name': row.get('SHORTNAME'),
                     'expiration_date': row.get('LASTTRADEDATE'),
-                    'last_price': row.get('LAST'),
-                    'open_price': row.get('OPEN'),
-                    'high_price': row.get('HIGH'),
-                    'low_price': row.get('LOW'),
+                    'price': price,
+                    'prev_settle_price': row.get('PREVPRICE'),
                     'change_pct': row.get('LASTTOPREVPRICE'),
-                    'volume_contracts': row.get('VOLTODAY'),
-                    'open_interest': row.get('OPENPOSITION'),
-                    'update_time': row.get('UPDATETIME'),
+                    'volume_contracts': row.get('VOLTODAY') or 0,
+                    'open_interest': row.get('OPENPOSITION') or 0,
                     'fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M')
                 })
     except Exception as e:
-        print(f"Ошибка при загрузке фьючерсов: {e}")
+        print(f"Ошибка MOEX: {e}")
 
     df_fut = pd.DataFrame(futures_rows)
     df_fut.to_csv('moex_futures.csv', index=False, encoding='utf-8-sig')
-    print(f"Сохранено контрактов фьючерсов: {len(df_fut)}")
+    print(f"ИТОГО сохранено контрактов фьючерсов: {len(df_fut)}")
+
+
+def fetch_vacancies():
+    vacancies = []
+    # Используем открытое API Habr Career (не блокирует зарубежные IP GitHub)
+    url = 'https://habr.com'
+    
+    for page in range(1, 6):
+        params = {'q': 'Финансовый директор', 'type': 'all', 'page': page}
+        try:
+            resp = requests.get(url, params=params, headers=HEADERS, timeout=25)
+            if resp.status_code != 200:
+                print(f"Статус ответа вакансий: {resp.status_code}")
+                break
+            data = resp.json()
+            items = data.get('list', [])
+            if not items:
+                break
+                
+            for item in items:
+                salary = item.get('salary') or {}
+                locations = [loc.get('title') for loc in item.get('locations', [])]
+                skills = [s.get('title') for s in item.get('skills', [])]
+                
+                vacancies.append({
+                    'id': item.get('id'),
+                    'job_name': item.get('title'),
+                    'company': item.get('company', {}).get('title'),
+                    'city': ', '.join(locations) if locations else 'Удаленно / Не указан',
+                    'remote': item.get('remoteWork'),
+                    'salary_from': salary.get('from'),
+                    'salary_to': salary.get('to'),
+                    'currency': salary.get('currency'),
+                    'skills': ', '.join(skills),
+                    'published_at': item.get('publishedDate', {}).get('date'),
+                    'url': f"https://habr.com{item.get('href', '')}",
+                    'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M')
+                })
+        except Exception as e:
+            print(f"Ошибка вакансий: {e}")
+
+    df_vac = pd.DataFrame(vacancies)
+    df_vac.to_csv('cfo_vacancies.csv', index=False, encoding='utf-8-sig')
+    print(f"ИТОГО сохранено вакансий: {len(df_vac)}")
 
 
 if __name__ == '__main__':
-    fetch_vacancies()
     fetch_futures()
+    fetch_vacancies()
