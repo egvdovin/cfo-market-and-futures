@@ -1,4 +1,4 @@
-name: Auto Update CFO Market & MOEX Futures
+name: Auto Update MOEX Futures
 
 on:
   schedule:
@@ -21,17 +21,15 @@ jobs:
           python-version: '3.11'
 
       - name: Install libraries
-        run: pip install requests pandas yfinance
+        run: pip install pandas yfinance
 
       - name: Run data fetcher
-        env:
-          SUPERJOB_API_KEY: ${{ secrets.SUPERJOB_API_KEY }}
         run: python update_data.py
 
       - name: Commit updated CSV files
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add moex_futures.csv cfo_vacancies.csv
-          git commit -m "Auto-update CFO vacancies & futures data" || exit 0
+          git add moex_futures.csv
+          git commit -m "Auto-update futures data" || exit 0
           git push
